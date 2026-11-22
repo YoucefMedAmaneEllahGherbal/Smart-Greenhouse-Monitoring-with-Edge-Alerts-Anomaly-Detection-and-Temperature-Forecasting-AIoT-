@@ -1,0 +1,90 @@
+{
+  "dataset": "synthetic_greenhouse_30days_4bays.csv",
+  "timestamp_column": "ts",
+  "bay_column": "bayId",
+  "features": [
+    "T",
+    "RH",
+    "VPD"
+  ],
+  "vpd_formula": "0.6108 * exp(17.27*T/(T+237.3)) * (1-RH/100), VPD in kPa",
+  "model": "IsolationForest",
+  "artifact": "climate_isolation_forest.joblib",
+  "imputer": "climate_imputer.joblib",
+  "scaler": "climate_scaler.joblib",
+  "inference_bundle": "climate_inference_bundle.joblib",
+  "score": "negative IsolationForest score_samples; larger values are more anomalous",
+  "threshold": 0.6314783574090145,
+  "threshold_quantile": 0.9965,
+  "high_severity_threshold": 0.6314783574090145,
+  "high_severity_quantile": 0.993,
+  "split": {
+    "fit_fraction_per_bay": 0.65,
+    "calibration_start_fraction_per_bay": 0.7,
+    "calibration_end_fraction_per_bay": 0.85,
+    "test_is_last_fraction_per_bay": 0.15000000000000002
+  },
+  "metrics": {
+    "evaluation_source": "controlled synthetic climate fault-injection stress test on held-out chronological rows; not real-world ground truth",
+    "climate": {
+      "n_rows": 2592,
+      "n_anomaly_rows": 64,
+      "n_normal_rows": 2528,
+      "accuracy": 0.9895833333333334,
+      "precision": 0.8490566037735849,
+      "recall": 0.703125,
+      "f1": 0.7692307692307693,
+      "specificity": 0.9968354430379747,
+      "balanced_accuracy": 0.8499802215189873,
+      "roc_auc": 0.8794130735759494,
+      "average_precision_pr_auc": 0.7472096582981791,
+      "confusion_matrix": {
+        "tn": 2520,
+        "fp": 8,
+        "fn": 19,
+        "tp": 45
+      }
+    },
+    "climate_event_recall": {
+      "events": 16,
+      "detected": 14,
+      "recall": 0.875,
+      "by_type": {
+        "T_spike": {
+          "detected": 3,
+          "events": 4,
+          "recall": 0.75
+        },
+        "RH_drop": {
+          "detected": 4,
+          "events": 4,
+          "recall": 1.0
+        },
+        "hot_dry_shift": {
+          "detected": 3,
+          "events": 4,
+          "recall": 0.75
+        },
+        "T_drift": {
+          "detected": 4,
+          "events": 4,
+          "recall": 1.0
+        }
+      }
+    }
+  },
+  "original_data": {
+    "scored_rows": 17280,
+    "flagged_rows": 64,
+    "flagged_fraction": 0.003703703703703704,
+    "high_severity_rows": 64
+  },
+  "warnings": [
+    "The model is trained without anomaly labels; the calibration period is assumed to be mostly normal.",
+    "VPD is derived from temperature and relative humidity, so the three inputs are not independent.",
+    "Isolation Forest detects unusual combinations; it does not diagnose the physical cause.",
+    "Severity is statistical extremeness relative to calibration scores, not a crop-safety or agronomic risk rating.",
+    "Injected-fault metrics describe only the documented synthetic scenarios, not real-world accuracy.",
+    "A point-wise model using T, RH and VPD does not explicitly detect temporal-only faults such as a plausible constant sensor reading."
+  ]
+}
