@@ -35,10 +35,25 @@ except ImportError:
     from greenhouse_predict import load_bundle, predict_next_hour
 
 from anomaly import calculate_vpd, score_reading
+from config import (
+    DISPLAY_TZ,
+    HISTORY_WINDOW_MINUTES,
+    N_READINGS,
+    NOT_CONFIGURED_MESSAGE,
+    REFRESH_SECONDS,
+    REQUEST_TIMEOUT_SEC,
+    STALE_THRESHOLD_MINUTES,
+    get_secret,
+    log_error,
+    redact,
+)
+from notifier import (
+    is_telegram_configured,
+    process_live_telemetry_notifications,
+)
 from thingspeak import (
     calculate_esp32_alert,
     fetch_thingspeak_data,
-    get_default_credentials,
     get_latest_reading_age,
     get_reading_age_seconds,
     is_data_stale,
@@ -88,7 +103,7 @@ st.set_page_config(
     page_title="Smart Greenhouse AIoT",
     page_icon=":material/potted_plant:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Inject Custom Modern Dark Stylesheet
@@ -103,7 +118,13 @@ ALERT_LABELS = {0: "Normal", 1: "Warning", 2: "Critical"}
 # -----------------------------------------------------------------------------
 @st.cache_resource(show_spinner="Loading machine learning models...")
 def load_ml_resources() -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[Dict[str, Any]], str]:
-    """Load both ML inference bundles and model metadata from disk."""
+    """Load both ML inference bundles and model metadata from disk.
+
+    Security Note:
+    ML model bundles are loaded exclusively from fixed, trusted local paths within
+    the 'models/' directory (models/*.joblib). No network-supplied binaries, untrusted
+    files, or dynamic paths are unpickled or evaluated.
+    """
     forecast_path = MODELS_DIR / "greenhouse_forecast_bundle.joblib"
     anomaly_path = MODELS_DIR / "climate_inference_bundle.joblib"
     metadata_path = MODELS_DIR / "model_metadata_and_metrics.json"
@@ -150,104 +171,14 @@ def main() -> None:
         st.error(f"Model Loading Error:\n{model_errors}")
         st.stop()
 
-    # Pre-fetch default credentials
-    default_chan_id, default_read_key = get_default_credentials()
-
-    # --- SIDEBAR CONFIGURATION ---
-    with st.sidebar:
-        render_html(f"""
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-                <span style="color:#34D399; display:flex;">{SVG_LEAF.strip()}</span>
-                <span style="font-weight:700; font-size:1.05rem; color:#E6F0EA;">Greenhouse AIoT</span>
-            </div>
-        """)
-
-        render_html("""
-            <div class="sidebar-section-header">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-                <span>Telemetry Stream</span>
-            </div>
-        """)
-
-        channel_id = st.text_input(
-            "Channel ID",
-            value=default_chan_id,
-            help="Numeric Channel ID from ThingSpeak (e.g. 3580105)",
-        ).strip()
-
-        read_key = st.text_input(
-            "Read API Key (Optional)",
-            value=default_read_key,
-            type="password",
-            help="Read API Key for private ThingSpeak channels",
-        ).strip()
-
-        history_size = st.slider(
-            "History Window (readings)",
-            min_value=50,
-            max_value=1200,
-            value=600,
-            step=50,
-            help="Default 600 points (~3.3 hours at 20s intervals)",
-        )
-
-        render_html("""
-            <div class="sidebar-section-header">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
-                <span>Refresh Settings</span>
-            </div>
-        """)
-
-        refresh_options = {
-            "20 seconds (Default)": 20,
-            "10 seconds": 10,
-            "30 seconds": 30,
-            "60 seconds": 60,
-            "Off (Manual only)": 0,
-        }
-        selected_refresh = st.selectbox(
-            "Auto-refresh interval",
-            options=list(refresh_options.keys()),
-            index=0,
-            help="Fragment background update frequency",
-        )
-        auto_refresh_sec = refresh_options[selected_refresh]
-
-        stale_threshold_min = st.slider(
-            "Stale threshold (minutes)",
-            min_value=1,
-            max_value=30,
-            value=5,
-            step=1,
-            help="Mark telemetry as stale if latest reading exceeds this age.",
-        )
-
-        render_html("""
-            <div class="sidebar-section-header">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <span>Display & Timezone</span>
-            </div>
-        """)
-
-        timezone_options = [
-            "Africa/Algiers",
-            "UTC",
-            "Europe/Paris",
-            "America/New_York",
-            "Asia/Tokyo",
-            "Asia/Dubai",
-        ]
-        selected_tz = st.selectbox(
-            "Greenhouse Timezone",
-            options=timezone_options,
-            index=0,
-            help="Used for local timestamp formatting and solar feature calculations",
-        )
-
-        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-        if st.button("Refresh now", icon=":material/refresh:", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
+    # Telemetry and runtime parameters (immutable defaults, no sidebar controls)
+    channel_id = get_secret("THINGSPEAK_CHANNEL_ID")
+    read_key = get_secret("THINGSPEAK_READ_KEY")
+    history_size = N_READINGS
+    auto_refresh_sec = REFRESH_SECONDS
+    stale_threshold_min = STALE_THRESHOLD_MINUTES
+    selected_tz = DISPLAY_TZ
+    telegram_enabled = is_telegram_configured()
 
     # --- TOP TABS ---
     tab_live, tab_manual, tab_models = st.tabs([
@@ -267,6 +198,7 @@ def main() -> None:
             auto_refresh_sec=auto_refresh_sec,
             tz_name=selected_tz,
             stale_threshold_min=stale_threshold_min,
+            telegram_enabled=telegram_enabled,
             forecast_bundle=forecast_bundle,
             anomaly_bundle=anomaly_bundle,
         )
@@ -302,6 +234,7 @@ def render_live_dashboard(
     auto_refresh_sec: int,
     tz_name: str,
     stale_threshold_min: int,
+    telegram_enabled: bool,
     forecast_bundle: Dict[str, Any],
     anomaly_bundle: Dict[str, Any],
 ) -> None:
@@ -310,28 +243,44 @@ def render_live_dashboard(
 
     @st.fragment(run_every=interval)
     def _fragment_live_content():
-        if not channel_id:
-            render_header(
-                connection_state="offline",
-                age_seconds=None,
-            )
+        # Fetch telemetry
+        df, fetch_status = fetch_thingspeak_data(channel_id, read_key, results=history_size)
+
+        if fetch_status == "not_configured":
+            hdr_col1, hdr_col2 = st.columns([0.88, 0.12])
+            with hdr_col1:
+                render_header(
+                    connection_state="offline",
+                    age_seconds=None,
+                )
+            with hdr_col2:
+                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+                if st.button("Refresh", icon=":material/refresh:", help="Clear cache and reload telemetry", use_container_width=True, key="btn_refresh_not_cfg"):
+                    st.cache_data.clear()
+                    st.rerun()
+
             render_empty_state(
-                title="ThingSpeak Channel ID Required",
-                message="Please configure a valid numeric ThingSpeak Channel ID in the sidebar to stream real-time greenhouse microclimate telemetry.",
+                title="Configuration Required",
+                message=NOT_CONFIGURED_MESSAGE,
             )
             return
 
-        # Fetch telemetry
-        df = fetch_thingspeak_data(channel_id, read_key, results=history_size)
+        if df.empty or fetch_status in ("unreachable", "empty"):
+            hdr_col1, hdr_col2 = st.columns([0.88, 0.12])
+            with hdr_col1:
+                render_header(
+                    connection_state="offline",
+                    age_seconds=None,
+                )
+            with hdr_col2:
+                st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+                if st.button("Refresh", icon=":material/refresh:", help="Clear cache and reload telemetry", use_container_width=True, key="btn_refresh_offline"):
+                    st.cache_data.clear()
+                    st.rerun()
 
-        if df.empty:
-            render_header(
-                connection_state="offline",
-                age_seconds=None,
-            )
             render_empty_state(
                 title="No Telemetry Received",
-                message="ThingSpeak returned no records. Verify that your ESP32 Wokwi simulation is running and broadcasting to this channel.",
+                message="ThingSpeak channel is currently unreachable or has no records. Verify that your ESP32 Wokwi simulation is running and broadcasting to this channel.",
             )
             return
 
@@ -348,13 +297,20 @@ def render_live_dashboard(
         else:
             conn_state = "live"
 
-        # Render Header
-        render_header(
-            title="Smart Greenhouse AIoT",
-            subtitle="Edge ESP32 Sensing • ThingSpeak Cloud Telemetry • 1-Hour Forecast ML • Isolation Forest Anomaly Detection",
-            connection_state=conn_state,
-            age_seconds=age_sec,
-        )
+        # Render Header with Refresh button
+        hdr_col1, hdr_col2 = st.columns([0.88, 0.12])
+        with hdr_col1:
+            render_header(
+                title="Smart Greenhouse AIoT",
+                subtitle="Edge ESP32 Sensing • ThingSpeak Cloud Telemetry • 1-Hour Forecast ML • Isolation Forest Anomaly Detection",
+                connection_state=conn_state,
+                age_seconds=age_sec,
+            )
+        with hdr_col2:
+            st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
+            if st.button("Refresh", icon=":material/refresh:", help="Clear cache and fetch latest telemetry", use_container_width=True, key="btn_refresh_live"):
+                st.cache_data.clear()
+                st.rerun()
 
         latest_reading = df.iloc[-1]
         curr_t = float(latest_reading["T"])
@@ -384,6 +340,18 @@ def render_live_dashboard(
             forecast_res = predict_next_hour(df, forecast_bundle, tz=tz_name)
         except Exception as exc:
             forecast_err = str(exc)
+
+        # Dispatch Telegram risk notifications if enabled
+        if telegram_enabled:
+            process_live_telemetry_notifications(
+                curr_t=curr_t,
+                curr_rh=curr_rh,
+                curr_alert=curr_alert,
+                anomaly_res=anomaly_res,
+                forecast_res=forecast_res,
+                local_time_str=local_time_str,
+                tz_name=tz_name,
+            )
 
         # Status Banner Evaluation
         forecast_alert = forecast_res["alert_level"] if forecast_res else 0
@@ -955,4 +923,8 @@ def render_models_and_about(
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        log_error(type(exc).__name__)
+        st.error("An unexpected error occurred. Please reload the application.")

@@ -28,14 +28,10 @@ header { visibility: hidden; }
     max-width: 96% !important;
 }
 
-/* Sidebar Styling */
-section[data-testid="stSidebar"] {
-    background-color: #0E1613 !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
-}
-
-section[data-testid="stSidebar"] .block-container {
-    padding-top: 1.5rem !important;
+/* Sidebar Completely Hidden */
+section[data-testid="stSidebar"],
+[data-testid="stSidebarCollapsedControl"] {
+    display: none !important;
 }
 
 .sidebar-section-header {

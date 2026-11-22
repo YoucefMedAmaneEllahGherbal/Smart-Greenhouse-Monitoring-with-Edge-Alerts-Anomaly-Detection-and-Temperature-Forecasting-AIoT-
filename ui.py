@@ -12,6 +12,7 @@ Provides modern dark greenhouse components:
 
 from __future__ import annotations
 
+import html
 import re
 import textwrap
 from pathlib import Path
@@ -140,26 +141,30 @@ def render_header(
     else:
         age_str = "No feed data"
 
-    html = f"""
+    clean_title = html.escape(title.strip())
+    clean_subtitle = html.escape(subtitle.strip())
+    clean_age = html.escape(age_str.strip())
+
+    html_content = f"""
     <div class="app-header-container">
         <div class="app-title-group">
             <div class="app-logo-badge">
                 {SVG_LEAF.strip()}
             </div>
             <div>
-                <div class="app-title-text">{title.strip()}</div>
-                <div class="app-subtitle-text">{subtitle.strip()}</div>
+                <div class="app-title-text">{clean_title}</div>
+                <div class="app-subtitle-text">{clean_subtitle}</div>
             </div>
         </div>
         <div class="live-pill">
             <span class="pulse-dot {pill_class}"></span>
             <span style="font-weight:600; color:{pill_color};">{pill_status}</span>
             <span style="color:#8FA39A; font-size:0.75rem;">•</span>
-            <span style="color:#8FA39A;">{age_str}</span>
+            <span style="color:#8FA39A;">{clean_age}</span>
         </div>
     </div>
     """
-    render_html(html)
+    render_html(html_content)
 
 
 # -----------------------------------------------------------------------------
@@ -191,28 +196,33 @@ def render_status_banner(
 
     stale_html = ""
     if stale_notice:
-        stale_html = f'<div style="margin-top:6px; color:#FCA5A5; font-size:0.8rem; font-weight:500;">{stale_notice.strip()}</div>'
+        stale_clean = html.escape(stale_notice.strip())
+        stale_html = f'<div style="margin-top:6px; color:#FCA5A5; font-size:0.8rem; font-weight:500;">{stale_clean}</div>'
 
     time_html = ""
     if time_summary:
-        time_html = f'<div class="status-banner-time">{time_summary.strip()}</div>'
+        time_clean = html.escape(time_summary.strip())
+        time_html = f'<div class="status-banner-time">{time_clean}</div>'
 
-    html = f"""
+    title_clean = html.escape(title.strip())
+    message_clean = html.escape(message.strip())
+
+    html_content = f"""
     <div class="status-banner-card {card_class}">
         <div class="status-banner-icon" style="background:{icon_bg}; color:{icon_color};">
             {icon_svg.strip()}
         </div>
         <div style="flex-grow:1;">
             <div class="status-banner-title" style="color:{icon_color};">
-                <span>{title.strip()}</span>
+                <span>{title_clean}</span>
             </div>
-            <div class="status-banner-desc">{message.strip()}</div>
+            <div class="status-banner-desc">{message_clean}</div>
             {time_html}
             {stale_html}
         </div>
     </div>
     """
-    render_html(html)
+    render_html(html_content)
 
 
 # -----------------------------------------------------------------------------
@@ -227,10 +237,10 @@ def render_kpi_grid(cards: List[Dict[str, Any]], grid_cols: int = 7) -> None:
         icon_svg = str(c.get("icon_svg", SVG_THERMOMETER)).strip()
         icon_bg = str(c.get("icon_bg", "rgba(52, 211, 153, 0.15)")).strip()
         icon_color = str(c.get("icon_color", "#34D399")).strip()
-        label = str(c.get("label", "METRIC")).strip()
-        value = str(c.get("value", "--")).strip()
-        unit = str(c.get("unit", "")).strip()
-        subtext = str(c.get("subtext", "")).strip()
+        label = html.escape(str(c.get("label", "METRIC")).strip())
+        value = html.escape(str(c.get("value", "--")).strip())
+        unit = html.escape(str(c.get("unit", "")).strip())
+        subtext = html.escape(str(c.get("subtext", "")).strip())
         subtext_type = str(c.get("subtext_type", "neutral")).strip()
         arrow = c.get("arrow", None)
 
@@ -869,8 +879,8 @@ def render_stat_cards(stats: List[Dict[str, str]]) -> None:
     """Render small clean stat cards in a responsive grid."""
     cards_html = []
     for s in stats:
-        label = str(s.get("label", "")).strip()
-        value = str(s.get("value", "")).strip()
+        label = html.escape(str(s.get("label", "")).strip())
+        value = html.escape(str(s.get("value", "")).strip())
         color = str(s.get("color", COLOR_TEXT)).strip()
         card = (
             f'<div class="stat-card">'
@@ -893,13 +903,15 @@ def render_empty_state(
     icon_svg: str = SVG_SEARCH,
 ) -> None:
     """Render friendly centered state card without raw errors or emojis."""
-    html = f"""
+    clean_title = html.escape(title.strip())
+    clean_message = html.escape(message.strip())
+    html_content = f"""
     <div class="empty-state-card">
         <div class="empty-state-icon">
             {icon_svg.strip()}
         </div>
-        <div class="empty-state-title">{title.strip()}</div>
-        <div class="empty-state-desc">{message.strip()}</div>
+        <div class="empty-state-title">{clean_title}</div>
+        <div class="empty-state-desc">{clean_message}</div>
     </div>
     """
-    render_html(html)
+    render_html(html_content)
